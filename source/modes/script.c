@@ -31,6 +31,7 @@
 #include "modes/script.h"
 #include "helper.h"
 #include "rofi.h"
+#include "view.h"
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -72,6 +73,9 @@ typedef struct {
   gboolean no_custom;
 
   gboolean use_hot_keys;
+
+  gboolean info_message;
+  unsigned int selected_line;
 } ScriptModePrivateData;
 
 /**
@@ -135,6 +139,8 @@ static void parse_header_entry(Mode *sw, char *line, ssize_t length) {
       pd->no_custom = (strcasecmp(value, "true") == 0);
     } else if (strcasecmp(line, "use-hot-keys") == 0) {
       pd->use_hot_keys = (strcasecmp(value, "true") == 0);
+    } else if (strcasecmp(line, "use-info-message") == 0) {
+      pd->info_message = strcasecmp(value, "true") == 0;
     } else if (strcasecmp(line, "data") == 0) {
       g_free(pd->data);
       pd->data = g_strdup(value);
@@ -366,10 +372,29 @@ static inline unsigned int get_index(unsigned int length, int index) {
   // Out of range.
   return UINT_MAX;
 }
+
+static void updateMessage(ScriptModePrivateData *pd) {
+  RofiViewState *state = rofi_view_get_active();
+  if (state == NULL)
+    return;
+
+  int selected = (rofi_view_get_next_position(state) - 1) % pd->cmd_list_length;
+  if (pd->selected_line != selected) {
+    pd->selected_line = selected;
+    rofi_view_reload();
+  }
+}
+
 static char *_get_display_value(const Mode *sw, unsigned int selected_line,
                                 G_GNUC_UNUSED int *state,
                                 G_GNUC_UNUSED GList **list, int get_entry) {
   ScriptModePrivateData *pd = sw->private_data;
+
+  // Update the message if desired
+  if (pd->info_message && selected_line == 0) {
+    updateMessage(pd);
+  }
+
   for (unsigned int i = 0; i < pd->num_active_list; i++) {
     unsigned int start =
         get_index(pd->cmd_list_length, pd->active_list[i].start);
@@ -414,7 +439,13 @@ static int script_token_match(const Mode *sw, rofi_int_matcher **tokens,
 }
 static char *script_get_message(const Mode *sw) {
   ScriptModePrivateData *pd = sw->private_data;
-  return g_strdup(pd->message);
+
+  if (pd->info_message) {
+    char *info = pd->cmd_list[pd->selected_line].info;
+    return g_strdup(info);
+  } else {
+    return g_strdup(pd->message);
+  }
 }
 static cairo_surface_t *
 script_get_icon(const Mode *sw, unsigned int selected_line, int height) {
